@@ -9,6 +9,8 @@ fusionextractor/
   __init__.py      # exports FusionProject, FusionExtractorError, FileNotFoundInArchiveError
   f3z.py           # FusionProject dataclass — all extraction logic lives here
   exceptions.py    # FusionExtractorError, FileNotFoundInArchiveError
+examples/
+  extract.py       # runnable example: python examples/extract.py <file.f3z>
 AQS-v4_1.f3z      # sample file for manual testing
 ```
 
@@ -63,6 +65,12 @@ with FusionProject("design.f3z") as proj:
 ## Testing
 
 No test suite yet. Use the sample file for manual testing:
+
+```bash
+python examples/extract.py AQS-v4_1.f3z
+```
+
+Or inline:
 
 ```bash
 python3 -c "

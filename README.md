@@ -8,10 +8,9 @@ A Python library for extracting resources from Autodesk Fusion Electronics `.f3z
 
 ## Installation
 
-Clone the repository and import directly, or install as a local package:
-
 ```bash
-pip install -e .
+pip install -e .           # stdlib only
+pip install -e ".[zstd]"   # adds Zstandard support for 3D model previews
 ```
 
 ## Usage
@@ -102,4 +101,6 @@ from fusionextractor import FusionExtractorError, FileNotFoundInArchiveError
 
 ## Requirements
 
-Python 3.9+ — no third-party dependencies.
+Python 3.9+. No required third-party dependencies.
+
+The `.f3d` archive (3D model) uses Zstandard compression, which Python's stdlib `zipfile` does not support. Without the optional extra, 3D model previews are silently skipped. Install `.[zstd]` to enable them.

@@ -27,6 +27,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator
 
+try:
+    import zipfile_zstd  # noqa: F401 — registers zstd (type 93) with zipfile when present
+except ImportError:
+    pass
+
 from .exceptions import FileNotFoundInArchiveError, FusionExtractorError
 
 
@@ -154,10 +159,14 @@ class FusionProject:
                     and lower.endswith(".png")
                 )
                 if is_thumbnail or is_large:
+                    try:
+                        data = zf.read(name)
+                    except NotImplementedError:
+                        continue  # unsupported codec (e.g. zstd); install zipfile-zstd
                     results.append(PreviewImage(
                         source=label,
                         path=name,
-                        data=zf.read(name),
+                        data=data,
                     ))
         return results
 

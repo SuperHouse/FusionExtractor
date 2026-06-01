@@ -57,7 +57,8 @@ with FusionProject("design.f3z") as proj:
 - `FusionProject` is a `@dataclass`; `__enter__`/`__exit__` open and close the root ZIP.
 - `_nested_zip(extension)` reads a nested archive into a `BytesIO` buffer and returns a `ZipFile` — avoids temp files.
 - `_write()` treats `dest` as a directory (creates it) when the path ends with `/`, is already a directory, or has no file extension. Otherwise treats it as the output file path.
-- No third-party dependencies — stdlib only (`zipfile`, `json`, `io`, `pathlib`).
+- No required third-party dependencies — stdlib only by default (`zipfile`, `json`, `io`, `pathlib`).
+- The `.f3d` archive uses **Zstandard compression (type 93)**, which stdlib `zipfile` does not support. `f3z.py` attempts `import zipfile_zstd` at startup; if present it patches `zipfile` globally and zstd entries work transparently. Preview entries that still can't be decompressed are silently skipped in `get_previews()`. Install the optional extra for full support: `pip install -e ".[zstd]"`.
 
 ## Testing
 

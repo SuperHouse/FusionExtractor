@@ -13,6 +13,22 @@ pip install -e .           # stdlib only
 pip install -e ".[zstd]"   # adds Zstandard support for 3D model previews
 ```
 
+## Examples
+
+A sample Fusion Electronics project is included in `examples/IOMOD-AD5593R_v2_0.f3z` for 
+use by automatic tests and for you to use when trying out the library.
+
+To run `examples/extract.py`, open a terminal in the library folder and type:
+
+```
+pip install -e ".[zstd]"
+python examples/extract.py examples/IOMOD-AD5593R-v2_0.f3z
+```
+
+This will create a new folder called `output` in the current directory, and extract various 
+assets from the sample project into it. Check the source of `extract.py` to see the 
+options it uses relating to output filenames, etc.
+
 ## Usage
 
 ```python

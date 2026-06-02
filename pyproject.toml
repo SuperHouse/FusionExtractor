@@ -11,3 +11,7 @@ requires-python = ">=3.9"
 
 [project.optional-dependencies]
 zstd = ["zipfile-zstd"]
+dev = ["pytest", "pytest-cov"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -21,6 +21,11 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
 ]
 
+[project.urls]
+Homepage = "https://github.com/SuperHouse/FusionExtractor"
+Repository = "https://github.com/SuperHouse/FusionExtractor"
+"Bug Tracker" = "https://github.com/SuperHouse/FusionExtractor/issues"
+
 [project.optional-dependencies]
 zstd = ["zipfile-zstd"]
 dev = ["pytest", "pytest-cov"]

@@ -46,13 +46,17 @@ with FusionProject("design.f3z") as proj:
     proj.get_schematic() -> bytes
     proj.get_board() -> bytes
     proj.get_previews(include_large_images=True)  # list[PreviewImage]
+    proj.get_bom(include_power_symbols=False)     # list[BomEntry]
 
     proj.extract_schematic(dest)   # dest = dir path or file path; returns Path
     proj.extract_board(dest)
     proj.extract_previews(dest, include_large_images=True)  # returns list[Path]
+    proj.extract_bom(dest)         # writes {design_name}_bom.csv; returns Path
 ```
 
 `PreviewImage` fields: `source` (str label), `path` (path inside nested archive), `data` (bytes).
+
+`BomEntry` fields: `reference` (ref des), `device` (Eagle deviceset), `package` (footprint, dash-stripped), `value` (may be empty), `library`.  Supply symbols filtered out by default via library name containing "SupplySymbol".
 
 ## Key implementation details
 

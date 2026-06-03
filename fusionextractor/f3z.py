@@ -19,9 +19,11 @@ Preview images live at:
 
 from __future__ import annotations
 
+import csv
 import io
 import json
 import os
+import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,6 +35,15 @@ except ImportError:
     pass
 
 from .exceptions import FileNotFoundInArchiveError, FusionExtractorError
+
+
+@dataclass
+class BomEntry:
+    reference: str    # reference designator, e.g. "C1"
+    device: str       # component type (Eagle deviceset), e.g. "CAP", "AD5593R"
+    package: str      # footprint (Eagle device variant), e.g. "0603", "TSSOP16"
+    value: str        # component value, e.g. "100nF" — empty string when not set
+    library: str      # Eagle library name, e.g. "SuperHouse-Capacitors"
 
 
 @dataclass
@@ -170,6 +181,37 @@ class FusionProject:
                     ))
         return results
 
+    def get_bom(self, *, include_power_symbols: bool = False) -> list[BomEntry]:
+        """
+        Return the bill of materials parsed from the schematic.
+
+        Parameters
+        ----------
+        include_power_symbols:
+            When False (default) supply/power symbols (GND, VCC, NC, etc.)
+            are excluded; only real components are returned.  Supply symbols
+            are identified by their library name containing "SupplySymbol".
+        """
+        tree = ET.fromstring(self.get_schematic())
+        parts_elem = tree.find(".//parts")
+        if parts_elem is None:
+            return []
+        results: list[BomEntry] = []
+        for part in parts_elem:
+            if part.tag != "part":
+                continue
+            library = part.get("library", "")
+            if not include_power_symbols and "supplysymbol" in library.lower():
+                continue
+            results.append(BomEntry(
+                reference=part.get("name", ""),
+                device=part.get("deviceset", ""),
+                package=part.get("device", "").lstrip("-"),
+                value=part.get("value", ""),
+                library=library,
+            ))
+        return results
+
     # ------------------------------------------------------------------
     # Extraction helpers
     # ------------------------------------------------------------------
@@ -224,6 +266,35 @@ class FusionProject:
             out.write_bytes(preview.data)
             written.append(out)
         return written
+
+    def extract_bom(
+        self,
+        dest: str | os.PathLike | None = None,
+        *,
+        include_power_symbols: bool = False,
+    ) -> Path:
+        """
+        Write the BOM as a CSV file to *dest*.
+
+        If *dest* is a directory the file is named ``{design_name}_bom.csv``.
+        If *dest* is None the file is written to the current directory.
+        Returns the Path of the written file.
+        """
+        entries = self.get_bom(include_power_symbols=include_power_symbols)
+        buf = io.StringIO()
+        writer = csv.DictWriter(
+            buf, fieldnames=["reference", "device", "package", "value", "library"]
+        )
+        writer.writeheader()
+        for entry in entries:
+            writer.writerow({
+                "reference": entry.reference,
+                "device": entry.device,
+                "package": entry.package,
+                "value": entry.value,
+                "library": entry.library,
+            })
+        return self._write(buf.getvalue().encode(), f"{self.design_name}_bom.csv", dest)
 
     @staticmethod
     def _write(data: bytes, filename: str, dest: str | os.PathLike | None) -> Path:

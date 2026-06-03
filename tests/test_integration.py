@@ -3,7 +3,7 @@
 import pytest
 from pathlib import Path
 
-from fusionextractor import FusionProject, FusionExtractorError, FileNotFoundInArchiveError
+from fusionextractor import BomEntry, FusionProject, FusionExtractorError, FileNotFoundInArchiveError
 from tests.conftest import SAMPLE_F3Z
 
 
@@ -189,6 +189,91 @@ def test_extract_previews_creates_dest_dir(project, tmp_path):
     assert not dest.exists()
     project.extract_previews(dest, include_large_images=False)
     assert dest.is_dir()
+
+
+# ---------------------------------------------------------------------------
+# BOM
+# ---------------------------------------------------------------------------
+
+def test_get_bom_returns_list(project):
+    bom = project.get_bom()
+    assert isinstance(bom, list)
+    assert len(bom) > 0
+
+
+def test_get_bom_entries_are_bom_entry(project):
+    for entry in project.get_bom():
+        assert isinstance(entry, BomEntry)
+
+
+def test_get_bom_excludes_power_symbols_by_default(project):
+    bom = project.get_bom()
+    references = {e.reference for e in bom}
+    assert not any(r.startswith("GND") or r.startswith("P+") for r in references)
+
+
+def test_get_bom_default_count(project):
+    assert len(project.get_bom()) == 10
+
+
+def test_get_bom_include_power_symbols_count(project):
+    assert len(project.get_bom(include_power_symbols=True)) == 25
+
+
+def test_get_bom_known_component(project):
+    bom = project.get_bom()
+    u1 = next(e for e in bom if e.reference == "U1")
+    assert u1.device == "AD5593R"
+    assert u1.package == "TSSOP16"
+    assert u1.library == "SuperHouse-ICs"
+
+
+def test_get_bom_value_field(project):
+    bom = project.get_bom()
+    c1 = next(e for e in bom if e.reference == "C1")
+    assert c1.value == "100nF"
+    assert c1.package == "0603"
+
+
+def test_get_bom_package_strips_leading_dash(project):
+    bom = project.get_bom()
+    for entry in bom:
+        assert not entry.package.startswith("-")
+
+
+def test_extract_bom_to_dir(project, tmp_path):
+    result = project.extract_bom(tmp_path)
+    assert result.exists()
+    assert result.suffix == ".csv"
+    assert result.stat().st_size > 0
+
+
+def test_extract_bom_filename_uses_design_name(project, tmp_path):
+    result = project.extract_bom(tmp_path)
+    assert result.name == f"{project.design_name}_bom.csv"
+
+
+def test_extract_bom_to_explicit_path(project, tmp_path):
+    out = tmp_path / "components.csv"
+    result = project.extract_bom(out)
+    assert result == out
+    assert out.exists()
+
+
+def test_extract_bom_csv_headers(project, tmp_path):
+    import csv as _csv
+    result = project.extract_bom(tmp_path)
+    with open(result, newline="") as f:
+        reader = _csv.DictReader(f)
+        assert reader.fieldnames == ["reference", "device", "package", "value", "library"]
+
+
+def test_extract_bom_row_count_matches_get_bom(project, tmp_path):
+    import csv as _csv
+    result = project.extract_bom(tmp_path)
+    with open(result, newline="") as f:
+        rows = list(_csv.DictReader(f))
+    assert len(rows) == len(project.get_bom())
 
 
 # ---------------------------------------------------------------------------

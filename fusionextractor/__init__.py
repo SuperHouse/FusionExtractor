@@ -1,4 +1,4 @@
-from .f3z import FusionProject
+from .f3z import BomEntry, FusionProject
 from .exceptions import FusionExtractorError, FileNotFoundInArchiveError
 
-__all__ = ["FusionProject", "FusionExtractorError", "FileNotFoundInArchiveError"]
+__all__ = ["BomEntry", "FusionProject", "FusionExtractorError", "FileNotFoundInArchiveError"]

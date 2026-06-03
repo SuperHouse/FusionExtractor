@@ -39,14 +39,16 @@ with FusionProject("design.f3z") as proj:
     print(proj.design_name)
 
     # Get raw bytes
-    sch_bytes = proj.get_schematic()   # Eagle/KiCad .sch file
-    brd_bytes = proj.get_board()       # Eagle/KiCad .brd file
+    sch_bytes = proj.get_schematic()   # Eagle .sch file
+    brd_bytes = proj.get_board()       # Eagle .brd file
     previews  = proj.get_previews()    # list[PreviewImage]
+    bom       = proj.get_bom()         # list[BomEntry]
 
     # Extract to disk
     proj.extract_schematic("output/")           # writes original filename into output/
     proj.extract_board("output/my_board.brd")   # writes to exact path
     proj.extract_previews("output/previews/")   # writes all preview PNGs
+    proj.extract_bom("output/")                 # writes {design_name}_bom.csv
 ```
 
 ### Destination path behaviour
@@ -95,11 +97,37 @@ class FusionProject:
     def get_schematic() -> bytes
     def get_board() -> bytes
     def get_previews(*, include_large_images: bool = True) -> list[PreviewImage]
+    def get_bom(*, include_power_symbols: bool = False) -> list[BomEntry]
 
     def extract_schematic(dest=None) -> Path
     def extract_board(dest=None) -> Path
     def extract_previews(dest=None, *, include_large_images: bool = True) -> list[Path]
+    def extract_bom(dest=None, *, include_power_symbols: bool = False) -> Path
 ```
+
+### BOM
+
+`get_bom` parses the component list from the embedded schematic.  Supply/power symbols
+(GND, VCC, NC, etc.) are excluded by default; pass `include_power_symbols=True` to
+include them.
+
+```python
+for entry in proj.get_bom():
+    print(entry.reference, entry.device, entry.package, entry.value)
+    # e.g. "C1  CAP  0603  100nF"
+```
+
+`BomEntry` fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `reference` | `str` | Reference designator (`"C1"`, `"U1"`) |
+| `device` | `str` | Component type / part number base (`"CAP"`, `"AD5593R"`) |
+| `package` | `str` | Footprint / package (`"0603"`, `"TSSOP16"`) |
+| `value` | `str` | Component value (`"100nF"`, `"10K"`) — empty string when not set |
+| `library` | `str` | Eagle library name (`"SuperHouse-Capacitors"`) |
+
+`extract_bom` writes the BOM as a CSV file named `{design_name}_bom.csv`.
 
 ## Exceptions
 

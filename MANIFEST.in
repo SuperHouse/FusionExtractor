@@ -1,0 +1,3 @@
+include examples/*.f3z
+include examples/*.py
+recursive-exclude output *

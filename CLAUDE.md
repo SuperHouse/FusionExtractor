@@ -64,10 +64,10 @@ with FusionProject("design.f3z") as proj:
 
 ## Testing
 
-No test suite yet. Use the sample file for manual testing:
+Use the sample file for manual testing:
 
 ```bash
-python examples/extract.py AQS-v4_1.f3z
+python examples/extract.py examples/IOMOD-AD5593R-v2_0.f3z
 ```
 
 Or inline:
@@ -75,7 +75,7 @@ Or inline:
 ```bash
 python3 -c "
 from fusionextractor import FusionProject
-with FusionProject('AQS-v4_1.f3z') as p:
+with FusionProject('examples/IOMOD-AD5593R-v2_0.f3z') as p:
     print(p.design_name)
     print(len(p.get_schematic()), 'bytes')
     print(len(p.get_board()), 'bytes')

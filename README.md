@@ -9,8 +9,8 @@ A Python library for extracting resources from Autodesk Fusion Electronics `.f3z
 ## Installation
 
 ```bash
-pip install -e .           # stdlib only
-pip install -e ".[zstd]"   # adds Zstandard support for 3D model previews
+pip install fusionextractor                  # stdlib only
+pip install "fusionextractor[zstd]"          # adds Zstandard support for 3D model previews
 ```
 
 ## Examples

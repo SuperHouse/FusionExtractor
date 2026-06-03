@@ -113,6 +113,76 @@ def test_get_previews_thumbnails_are_png(project):
         )
 
 
+def test_get_previews_thumbnails_have_thumbnail_view_type(project):
+    for preview in project.get_previews(include_large_images=False):
+        assert preview.view_type == "thumbnail"
+
+
+def test_get_previews_large_images_have_view_types(project):
+    large = [p for p in project.get_previews() if "Images.BlobParts" in p.path]
+    assert len(large) > 0
+    for preview in large:
+        assert preview.view_type is not None, f"Missing view_type for {preview.path}"
+
+
+def test_get_previews_all_four_view_types_present(project):
+    view_types = {p.view_type for p in project.get_previews()}
+    assert "schematic" in view_types
+    assert "pcb_top" in view_types
+    assert "pcb_3d_top" in view_types
+    assert "pcb_3d_bottom" in view_types
+
+
+# ---------------------------------------------------------------------------
+# get_board_image
+# ---------------------------------------------------------------------------
+
+_BOARD_IMAGE_TYPES = ("schematic", "pcb_top", "pcb_3d_top", "pcb_3d_bottom")
+
+
+@pytest.mark.parametrize("view_type", _BOARD_IMAGE_TYPES)
+def test_get_board_image_returns_png(project, view_type):
+    data = project.get_board_image(view_type)
+    assert isinstance(data, bytes)
+    assert data[:8] == b"\x89PNG\r\n\x1a\n", f"{view_type} image is not a PNG"
+
+
+def test_get_board_image_unknown_type_raises(project):
+    from fusionextractor import FileNotFoundInArchiveError
+    with pytest.raises(FileNotFoundInArchiveError):
+        project.get_board_image("nonexistent")
+
+
+# ---------------------------------------------------------------------------
+# extract_board_image
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("view_type", _BOARD_IMAGE_TYPES)
+def test_extract_board_image_to_dir(project, tmp_path, view_type):
+    result = project.extract_board_image(view_type, tmp_path)
+    assert result.exists()
+    assert result.suffix == ".png"
+    assert result.stat().st_size > 0
+
+
+@pytest.mark.parametrize("view_type", _BOARD_IMAGE_TYPES)
+def test_extract_board_image_filename_uses_design_name_and_type(project, tmp_path, view_type):
+    result = project.extract_board_image(view_type, tmp_path)
+    assert result.name == f"{project.design_name}_{view_type}.png"
+
+
+def test_extract_board_image_to_explicit_path(project, tmp_path):
+    out = tmp_path / "top.png"
+    result = project.extract_board_image("pcb_top", out)
+    assert result == out
+    assert out.exists()
+
+
+def test_extract_board_image_content_matches_get(project, tmp_path):
+    result = project.extract_board_image("pcb_3d_bottom", tmp_path)
+    assert result.read_bytes() == project.get_board_image("pcb_3d_bottom")
+
+
 # ---------------------------------------------------------------------------
 # extract_schematic
 # ---------------------------------------------------------------------------

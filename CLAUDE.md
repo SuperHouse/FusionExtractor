@@ -6,7 +6,7 @@ Python library for extracting resources from Autodesk Fusion Electronics `.f3z` 
 
 ```
 fusionextractor/
-  __init__.py      # exports FusionProject, FusionExtractorError, FileNotFoundInArchiveError
+  __init__.py      # exports FusionProject, PreviewImage, BomEntry, FusionExtractorError, FileNotFoundInArchiveError
   f3z.py           # FusionProject dataclass — all extraction logic lives here
   exceptions.py    # FusionExtractorError, FileNotFoundInArchiveError
 examples/
@@ -34,7 +34,12 @@ The `{active_folder}` name (e.g. `"Schematic Document Asset[Active]"`) varies be
 
 Preview images:
 - Every nested ZIP: `{active_folder}/Previews/small.png` (thumbnail)
-- `.fprj` and `.f3d` only: `{active_folder}/Images.BlobParts/Image.{uuid}.png` (large renders)
+- `.fprj` only: `{active_folder}/Images.BlobParts/Image.{uuid}.png` — four large renders: schematic, PCB top 2D layout, 3D bottom render, 3D top render
+- `.f3d` only: `{active_folder}/Images.BlobParts/Image.{uuid}.png` — additional 3D renders (zstd-compressed; require `zipfile_zstd`)
+
+Image UUIDs carry no embedded label. Classification uses ZIP metadata only (no pixel decoding):
+- **RGB images** (no alpha, uncompressed PNG → file_size reflects raw pixels): the single least-compressible entry is `pcb_top`; all others are `schematic` (handles multi-page schematics).
+- **RGBA images** (PNG-compressed internally, transparent background): ZIP central-directory order is used — Fusion consistently writes the bottom render before the top render, so first RGBA → `pcb_3d_bottom`, subsequent → `pcb_3d_top`.
 
 ## Public API
 
@@ -46,15 +51,17 @@ with FusionProject("design.f3z") as proj:
     proj.get_schematic() -> bytes
     proj.get_board() -> bytes
     proj.get_previews(include_large_images=True)  # list[PreviewImage]
+    proj.get_board_image(view_type) -> bytes      # view_type: "schematic" | "pcb_top" | "pcb_3d_top" | "pcb_3d_bottom"
     proj.get_bom(include_power_symbols=False)     # list[BomEntry]
 
     proj.extract_schematic(dest)   # dest = dir path or file path; returns Path
     proj.extract_board(dest)
     proj.extract_previews(dest, include_large_images=True)  # returns list[Path]
+    proj.extract_board_image(view_type, dest)     # writes {design_name}_{view_type}.png; returns Path
     proj.extract_bom(dest)         # writes {design_name}_bom.csv; returns Path
 ```
 
-`PreviewImage` fields: `source` (str label), `path` (path inside nested archive), `data` (bytes).
+`PreviewImage` fields: `source` (str label), `path` (path inside nested archive), `data` (bytes), `view_type` (`"schematic"` | `"pcb_top"` | `"pcb_3d_top"` | `"pcb_3d_bottom"` | `"thumbnail"` | `None`).
 
 `BomEntry` fields: `reference` (ref des), `device` (Eagle deviceset), `package` (footprint, dash-stripped), `value` (may be empty), `library`.  Supply symbols filtered out by default via library name containing "SupplySymbol".
 

@@ -49,6 +49,12 @@ with FusionProject("design.f3z") as proj:
     proj.extract_board("output/my_board.brd")   # writes to exact path
     proj.extract_previews("output/previews/")   # writes all preview PNGs
     proj.extract_bom("output/")                 # writes {design_name}_bom.csv
+
+    # Extract named board images
+    proj.extract_board_image("schematic",    "output/")   # {design_name}_schematic.png
+    proj.extract_board_image("pcb_top",      "output/")   # {design_name}_pcb_top.png
+    proj.extract_board_image("pcb_3d_top",   "output/")   # {design_name}_pcb_3d_top.png
+    proj.extract_board_image("pcb_3d_bottom","output/")   # {design_name}_pcb_3d_bottom.png
 ```
 
 ### Destination path behaviour
@@ -61,12 +67,28 @@ with FusionProject("design.f3z") as proj:
 | A directory path or path ending with `/` | Original filename preserved inside that directory |
 | A full file path (with extension) | Written to that exact path |
 
+### Board images
+
+`get_board_image` and `extract_board_image` retrieve specific named views of the board:
+
+| `view_type` | Content |
+|---|---|
+| `"schematic"` | Schematic diagram (one or more pages) |
+| `"pcb_top"` | PCB top-layer 2D layout |
+| `"pcb_3d_top"` | 3D render from the top |
+| `"pcb_3d_bottom"` | 3D render from the bottom |
+
+```python
+top_png    = proj.get_board_image("pcb_3d_top")    # returns bytes
+bottom_png = proj.get_board_image("pcb_3d_bottom")
+
+proj.extract_board_image("pcb_3d_top", "output/")  # writes {design_name}_pcb_3d_top.png
+proj.extract_board_image("pcb_3d_top", "render.png")  # writes to exact path
+```
+
 ### Preview images
 
-`get_previews` and `extract_previews` return images from all four nested archives:
-
-- `small.png` — thumbnail present in every nested archive (schematic, board, project, 3D model)
-- Large PNG renders — present in the project (`.fprj`) and 3D model (`.f3d`) archives only
+`get_previews` and `extract_previews` return all images from all nested archives, including small thumbnails and the large renders above.  Each `PreviewImage` has a `view_type` field populated automatically.
 
 Pass `include_large_images=False` to retrieve thumbnails only.
 
@@ -83,6 +105,7 @@ for preview in proj.get_previews(include_large_images=False):
 | `source` | `str` | Archive the image came from (`"schematic"`, `"board"`, `"project"`, `"3d_model"`) |
 | `path` | `str` | Path of the image inside the nested archive |
 | `data` | `bytes` | Raw PNG bytes |
+| `view_type` | `str \| None` | `"schematic"`, `"pcb_top"`, `"pcb_3d_top"`, `"pcb_3d_bottom"`, or `"thumbnail"` |
 
 Extracted preview files are named `{source}__{original_filename}` to avoid collisions when multiple archives contain a `small.png`.
 
@@ -97,11 +120,13 @@ class FusionProject:
     def get_schematic() -> bytes
     def get_board() -> bytes
     def get_previews(*, include_large_images: bool = True) -> list[PreviewImage]
+    def get_board_image(view_type: str) -> bytes              # "schematic"|"pcb_top"|"pcb_3d_top"|"pcb_3d_bottom"
     def get_bom(*, include_power_symbols: bool = False) -> list[BomEntry]
 
     def extract_schematic(dest=None) -> Path
     def extract_board(dest=None) -> Path
     def extract_previews(dest=None, *, include_large_images: bool = True) -> list[Path]
+    def extract_board_image(view_type: str, dest=None) -> Path
     def extract_bom(dest=None, *, include_power_symbols: bool = False) -> Path
 ```
 

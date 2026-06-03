@@ -20,4 +20,9 @@ with FusionProject(sys.argv[1]) as proj:
     proj.extract_board("output/my_board.brd")   # writes to exact path
     proj.extract_schematic(f"output/{proj.path.stem}.sch")   # named after the .f3z file
     proj.extract_previews("output/previews/")   # writes all preview PNGs
-    proj.extract_bom(f"output/{proj.path.stem}.bom.txt")   # named after the .f3z file
+    proj.extract_bom(f"output/{proj.path.stem}.bom.csv")   # named after the .f3z file
+
+    proj.extract_board_image("pcb_3d_top", "output/pcb_3d_top.png")   # writes to exact path
+    proj.extract_board_image("pcb_3d_bottom", "output/pcb_3d_bottom.png")   # writes to exact path
+    proj.extract_board_image("pcb_top", "output/pcb_top.png")   # writes to exact path
+    proj.extract_board_image("schematic", "output/schematic.png")   # writes to exact path

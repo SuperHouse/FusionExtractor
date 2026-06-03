@@ -48,9 +48,10 @@ class BomEntry:
 
 @dataclass
 class PreviewImage:
-    source: str       # which nested archive it came from, e.g. "schematic", "board"
-    path: str         # path inside the nested archive
+    source: str            # which nested archive: "schematic", "board", "project", "3d_model"
+    path: str              # path inside the nested archive
     data: bytes
+    view_type: str | None = None  # "schematic", "pcb_top", "pcb_3d_top", "pcb_3d_bottom", "thumbnail"
 
 
 @dataclass
@@ -120,6 +121,58 @@ class FusionProject:
                 return name
         return None
 
+    @staticmethod
+    def _png_color_type(header: bytes) -> int | None:
+        """Return the IHDR color_type byte from the first 26 bytes of a PNG, or None."""
+        if len(header) < 26 or header[:8] != b'\x89PNG\r\n\x1a\n':
+            return None
+        return header[25]
+
+    @staticmethod
+    def _classify_fprj_images(
+        items: list[tuple[zipfile.ZipInfo, int | None]],
+    ) -> dict[str, str]:
+        """Classify Images.BlobParts entries from the .fprj archive by view type.
+
+        Uses ZIP metadata only — no pixel decoding, no colour assumptions:
+
+        - RGB images (color_type=2, stored without PNG-level compression so file_size
+          reflects raw pixel data): rank by ``compress_size / file_size``.  The PCB top
+          layout (copper fills, coloured layer backgrounds) is far less compressible than
+          any schematic page (predominantly white), so the single *least*-compressible
+          RGB image is labelled ``"pcb_top"`` and the rest ``"schematic"``.  This
+          correctly handles multi-page schematics.
+
+        - RGBA images (color_type=6, PNG-compressed internally): preserve ZIP central-
+          directory order.  Fusion consistently writes the bottom render before the top
+          render regardless of board complexity, so the first RGBA entry is labelled
+          ``"pcb_3d_bottom"`` and the second ``"pcb_3d_top"``.
+        """
+        rgb: list[zipfile.ZipInfo] = []
+        rgba: list[zipfile.ZipInfo] = []
+        for info, ct in items:
+            if ct == 2:
+                rgb.append(info)
+            elif ct == 6:
+                rgba.append(info)
+
+        result: dict[str, str] = {}
+
+        if rgb:
+            by_ratio = sorted(rgb, key=lambda i: i.compress_size / max(i.file_size, 1))
+            # Least compressible (last after ascending sort) = pcb_top; all others = schematic
+            result[by_ratio[-1].filename] = "pcb_top"
+            for info in by_ratio[:-1]:
+                result[info.filename] = "schematic"
+
+        if rgba:
+            # Preserve ZIP order: Fusion writes bottom before top
+            result[rgba[0].filename] = "pcb_3d_bottom"
+            for info in rgba[1:]:
+                result[info.filename] = "pcb_3d_top"
+
+        return result
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -152,15 +205,41 @@ class FusionProject:
         ``{name}[Active]/Previews/small.png``.  The .fprj and .f3d archives
         additionally contain larger PNG images under ``Images.BlobParts/``.
 
+        Each returned :class:`PreviewImage` has a ``view_type`` field set to one of:
+
+        * ``"thumbnail"`` — small ``Previews/small.png`` preview
+        * ``"schematic"`` — schematic diagram (from .fprj)
+        * ``"pcb_top"`` — PCB top-layer 2-D layout (from .fprj)
+        * ``"pcb_3d_top"`` — 3-D render from the top (from .fprj or .f3d)
+        * ``"pcb_3d_bottom"`` — 3-D render from the bottom (from .fprj or .f3d)
+
+        Classification is based on ZIP metadata only (no pixel decoding).
+
         Parameters
         ----------
         include_large_images:
-            When True (default) include the large ``Images.BlobParts`` PNGs
-            from the project and 3D-model archives.  Set to False to get only
-            the small ``Previews/small.png`` thumbnails.
+            When True (default) include the large ``Images.BlobParts`` PNGs.
+            Set to False to get only the small ``Previews/small.png`` thumbnails.
         """
         results: list[PreviewImage] = []
         for label, zf in self._nested_zips():
+            # Pre-classify large images in the electronics-project archive.
+            view_type_map: dict[str, str] = {}
+            if include_large_images and label == "project":
+                items: list[tuple[zipfile.ZipInfo, int | None]] = []
+                for info in zf.infolist():
+                    lower = info.filename.lower()
+                    if "/images.blobparts/" not in lower or not lower.endswith(".png"):
+                        continue
+                    ct: int | None
+                    try:
+                        with zf.open(info.filename) as fh:
+                            ct = self._png_color_type(fh.read(26))
+                    except Exception:
+                        ct = None
+                    items.append((info, ct))
+                view_type_map = self._classify_fprj_images(items)
+
             for name in zf.namelist():
                 lower = name.lower()
                 is_thumbnail = lower.endswith("/previews/small.png")
@@ -169,16 +248,23 @@ class FusionProject:
                     and "/images.blobparts/" in lower
                     and lower.endswith(".png")
                 )
-                if is_thumbnail or is_large:
-                    try:
-                        data = zf.read(name)
-                    except NotImplementedError:
-                        continue  # unsupported codec (e.g. zstd); install zipfile-zstd
-                    results.append(PreviewImage(
-                        source=label,
-                        path=name,
-                        data=data,
-                    ))
+                if not (is_thumbnail or is_large):
+                    continue
+                try:
+                    data = zf.read(name)
+                except NotImplementedError:
+                    continue  # unsupported codec (e.g. zstd); install zipfile-zstd
+
+                if is_thumbnail:
+                    vt: str | None = "thumbnail"
+                elif label == "project":
+                    vt = view_type_map.get(name)
+                elif label == "3d_model":
+                    vt = "pcb_3d_top"
+                else:
+                    vt = None
+
+                results.append(PreviewImage(source=label, path=name, data=data, view_type=vt))
         return results
 
     def get_bom(self, *, include_power_symbols: bool = False) -> list[BomEntry]:
@@ -212,6 +298,27 @@ class FusionProject:
             ))
         return results
 
+    def get_board_image(self, view_type: str) -> bytes:
+        """Return the PNG bytes for *view_type*.
+
+        Parameters
+        ----------
+        view_type:
+            One of ``"schematic"``, ``"pcb_top"``, ``"pcb_3d_top"``, ``"pcb_3d_bottom"``.
+
+        Raises
+        ------
+        FileNotFoundInArchiveError
+            If no image with that view type can be found (e.g. the .f3d archive
+            requires ``zipfile-zstd`` for ``"pcb_3d_top"`` images).
+        """
+        for preview in self.get_previews(include_large_images=True):
+            if preview.view_type == view_type:
+                return preview.data
+        raise FileNotFoundInArchiveError(
+            f"No {view_type!r} image found in {self.path.name}"
+        )
+
     # ------------------------------------------------------------------
     # Extraction helpers
     # ------------------------------------------------------------------
@@ -243,6 +350,27 @@ class FusionProject:
         if entry is None:
             raise FileNotFoundInArchiveError("No .brd file found inside .fbrd archive")
         return self._write(fbrd.read(entry), Path(entry).name, dest)
+
+    def extract_board_image(
+        self,
+        view_type: str,
+        dest: str | os.PathLike | None = None,
+    ) -> Path:
+        """
+        Write the PNG for *view_type* to *dest*.
+
+        Parameters
+        ----------
+        view_type:
+            One of ``"schematic"``, ``"pcb_top"``, ``"pcb_3d_top"``, ``"pcb_3d_bottom"``.
+        dest:
+            Directory or file path.  If a directory (or None), the file is named
+            ``{design_name}_{view_type}.png``.
+
+        Returns the Path of the written file.
+        """
+        data = self.get_board_image(view_type)
+        return self._write(data, f"{self.design_name}_{view_type}.png", dest)
 
     def extract_previews(
         self,

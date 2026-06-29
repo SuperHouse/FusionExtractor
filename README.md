@@ -178,7 +178,7 @@ for entry in proj.get_placements():
 | `reference` | `str` | Reference designator (`"R1"`, `"U1"`) |
 | `value` | `str` | Component value (`"100nF"`, `"10K"`) — empty string when not set |
 | `package` | `str` | Footprint (`"C0603"`, `"TSSOP16"`) |
-| `x` | `float` | X position in mm, Eagle's native board coordinates (Y increasing upward) |
+| `x` | `float` | X position in mm, Eagle's native board coordinates (X increasing right) |
 | `y` | `float` | Y position in mm, Eagle's native board coordinates (Y increasing upward) |
 | `rotation` | `float` | Rotation in degrees (0-360) |
 | `side` | `str` | `"top"` or `"bottom"` |

@@ -41,14 +41,17 @@ with FusionProject("design.f3z") as proj:
     # Get raw bytes
     sch_bytes = proj.get_schematic()   # Eagle .sch file
     brd_bytes = proj.get_board()       # Eagle .brd file
-    previews  = proj.get_previews()    # list[PreviewImage]
-    bom       = proj.get_bom()         # list[BomEntry]
+    previews   = proj.get_previews()    # list[PreviewImage]
+    bom        = proj.get_bom()         # list[BomEntry]
+    placements = proj.get_placements()  # list[PlacementEntry]
 
     # Extract to disk
     proj.extract_schematic("output/")           # writes original filename into output/
     proj.extract_board("output/my_board.brd")   # writes to exact path
     proj.extract_previews("output/previews/")   # writes all preview PNGs
     proj.extract_bom("output/")                 # writes {design_name}_bom.csv
+    proj.extract_placements_kicad("output/")    # writes {design_name}.pos
+    proj.extract_placements_eagle("output/")    # writes {design_name}.mnt and {design_name}.mnb
 
     # Extract named board images
     proj.extract_board_image("schematic",    "output/")   # {design_name}_schematic.png
@@ -122,12 +125,15 @@ class FusionProject:
     def get_previews(*, include_large_images: bool = True) -> list[PreviewImage]
     def get_board_image(view_type: str) -> bytes              # "schematic"|"pcb_top"|"pcb_3d_top"|"pcb_3d_bottom"
     def get_bom(*, include_power_symbols: bool = False) -> list[BomEntry]
+    def get_placements() -> list[PlacementEntry]
 
     def extract_schematic(dest=None) -> Path
     def extract_board(dest=None) -> Path
     def extract_previews(dest=None, *, include_large_images: bool = True) -> list[Path]
     def extract_board_image(view_type: str, dest=None) -> Path
     def extract_bom(dest=None, *, include_power_symbols: bool = False) -> Path
+    def extract_placements_kicad(dest=None) -> Path
+    def extract_placements_eagle(dest=None) -> tuple[Path, Path]
 ```
 
 ### BOM
@@ -153,6 +159,42 @@ for entry in proj.get_bom():
 | `library` | `str` | Eagle library name (`"SuperHouse-Capacitors"`) |
 
 `extract_bom` writes the BOM as a CSV file named `{design_name}_bom.csv`.
+
+### Placements
+
+`get_placements` parses component placement data (position, rotation, side) from the
+embedded board.
+
+```python
+for entry in proj.get_placements():
+    print(entry.reference, entry.x, entry.y, entry.rotation, entry.side)
+    # e.g. "R1  6.0  4.0  90.0  top"
+```
+
+`PlacementEntry` fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `reference` | `str` | Reference designator (`"R1"`, `"U1"`) |
+| `value` | `str` | Component value (`"100nF"`, `"10K"`) — empty string when not set |
+| `package` | `str` | Footprint (`"C0603"`, `"TSSOP16"`) |
+| `x` | `float` | X position in mm, Eagle's native board coordinates (Y increasing upward) |
+| `y` | `float` | Y position in mm, Eagle's native board coordinates (Y increasing upward) |
+| `rotation` | `float` | Rotation in degrees (0-360) |
+| `side` | `str` | `"top"` or `"bottom"` |
+
+Two extraction formats are available:
+
+* `extract_placements_kicad` writes a single KiCad-format `.pos` file covering both sides.
+  Because KiCad's PCB editor uses a Y-increases-downward axis while Eagle uses
+  Y-increases-upward, `PosY` is the negation of `PlacementEntry.y`.
+* `extract_placements_eagle` writes a pair of Eagle `mount.ulp`-format files split by side:
+  `{design_name}.mnt` (top) and `{design_name}.mnb` (bottom). X/Y are written unchanged.
+
+```python
+proj.extract_placements_kicad("output/")        # output/{design_name}.pos
+mnt_path, mnb_path = proj.extract_placements_eagle("output/")  # .mnt + .mnb
+```
 
 ## Exceptions
 

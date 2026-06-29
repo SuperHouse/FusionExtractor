@@ -26,3 +26,6 @@ with FusionProject(sys.argv[1]) as proj:
     proj.extract_board_image("pcb_3d_bottom", "output/pcb_3d_bottom.png")   # writes to exact path
     proj.extract_board_image("pcb_top", "output/pcb_top.png")   # writes to exact path
     proj.extract_board_image("schematic", "output/schematic.png")   # writes to exact path
+
+    proj.extract_placements_kicad("output/")   # writes {design_name}.pos
+    proj.extract_placements_eagle("output/")   # writes {design_name}.mnt and .mnb

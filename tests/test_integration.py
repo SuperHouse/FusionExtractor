@@ -3,7 +3,7 @@
 import pytest
 from pathlib import Path
 
-from fusionextractor import BomEntry, FusionProject, FusionExtractorError, FileNotFoundInArchiveError
+from fusionextractor import BomEntry, FusionProject, PlacementEntry, FusionExtractorError, FileNotFoundInArchiveError
 from tests.conftest import SAMPLE_F3Z
 
 
@@ -344,6 +344,148 @@ def test_extract_bom_row_count_matches_get_bom(project, tmp_path):
     with open(result, newline="") as f:
         rows = list(_csv.DictReader(f))
     assert len(rows) == len(project.get_bom())
+
+
+# ---------------------------------------------------------------------------
+# Placements
+# ---------------------------------------------------------------------------
+
+def test_get_placements_returns_list(project):
+    placements = project.get_placements()
+    assert isinstance(placements, list)
+    assert len(placements) > 0
+
+
+def test_get_placements_entries_are_placement_entry(project):
+    for entry in project.get_placements():
+        assert isinstance(entry, PlacementEntry)
+
+
+def test_get_placements_count(project):
+    assert len(project.get_placements()) == 10
+
+
+def test_get_placements_known_component(project):
+    placements = project.get_placements()
+    u1 = next(e for e in placements if e.reference == "U1")
+    assert u1.value == "AD5593R-TSSOP16"
+    assert u1.package == "TSSOP16"
+    assert u1.x == 6.0
+    assert u1.y == 12.0
+    assert u1.rotation == 90.0
+    assert u1.side == "top"
+
+
+def test_get_placements_mirrored_element_is_bottom_side(project):
+    placements = project.get_placements()
+    sj1 = next(e for e in placements if e.reference == "SJ1")
+    assert sj1.side == "bottom"
+    assert sj1.rotation == 0.0
+
+
+def test_get_placements_default_rotation_is_zero(project):
+    placements = project.get_placements()
+    fid1 = next(e for e in placements if e.reference == "FID1")
+    assert fid1.rotation == 0.0
+
+
+def test_get_placements_bottom_side_count(project):
+    placements = project.get_placements()
+    assert sum(1 for e in placements if e.side == "bottom") == 1
+
+
+# ---------------------------------------------------------------------------
+# extract_placements_kicad
+# ---------------------------------------------------------------------------
+
+def test_extract_placements_kicad_to_dir(project, tmp_path):
+    result = project.extract_placements_kicad(tmp_path)
+    assert result.exists()
+    assert result.suffix == ".pos"
+    assert result.name == f"{project.design_name}.pos"
+
+
+def test_extract_placements_kicad_to_explicit_path(project, tmp_path):
+    out = tmp_path / "my_placements.pos"
+    result = project.extract_placements_kicad(out)
+    assert result == out
+    assert out.exists()
+
+
+def test_extract_placements_kicad_header(project, tmp_path):
+    result = project.extract_placements_kicad(tmp_path)
+    lines = result.read_text().splitlines()
+    assert lines[0].startswith("### Module positions - created on")
+    assert lines[4].split() == ["#", "Ref", "Val", "Package", "PosX", "PosY", "Rot", "Side"]
+
+
+def test_extract_placements_kicad_row_count_matches_get_placements(project, tmp_path):
+    result = project.extract_placements_kicad(tmp_path)
+    lines = result.read_text().splitlines()
+    assert len(lines) - 5 == len(project.get_placements())
+
+
+def test_extract_placements_kicad_y_is_negated(project, tmp_path):
+    result = project.extract_placements_kicad(tmp_path)
+    u1 = next(e for e in project.get_placements() if e.reference == "U1")
+    row = next(line for line in result.read_text().splitlines() if line.startswith("U1 "))
+    pos_y = row.split()[4]
+    assert float(pos_y) == -u1.y
+
+
+def test_extract_placements_kicad_includes_both_sides(project, tmp_path):
+    result = project.extract_placements_kicad(tmp_path)
+    text = result.read_text()
+    assert " top" in text or "\ttop" in text
+    assert " bottom" in text or "\tbottom" in text
+
+
+# ---------------------------------------------------------------------------
+# extract_placements_eagle
+# ---------------------------------------------------------------------------
+
+def test_extract_placements_eagle_writes_two_files(project, tmp_path):
+    mnt, mnb = project.extract_placements_eagle(tmp_path)
+    assert mnt.exists()
+    assert mnb.exists()
+    assert mnt.suffix == ".mnt"
+    assert mnb.suffix == ".mnb"
+    assert mnt.name == f"{project.design_name}.mnt"
+    assert mnb.name == f"{project.design_name}.mnb"
+
+
+def test_extract_placements_eagle_splits_by_side(project, tmp_path):
+    mnt, mnb = project.extract_placements_eagle(tmp_path)
+    placements = project.get_placements()
+    top_count = sum(1 for e in placements if e.side == "top")
+    bottom_count = sum(1 for e in placements if e.side == "bottom")
+    mnt_rows = len(mnt.read_text().splitlines()) - 4
+    mnb_rows = len(mnb.read_text().splitlines()) - 4
+    assert mnt_rows == top_count
+    assert mnb_rows == bottom_count
+
+
+def test_extract_placements_eagle_header(project, tmp_path):
+    mnt, _ = project.extract_placements_eagle(tmp_path)
+    lines = mnt.read_text().splitlines()
+    from fusionextractor.f3z import _VERSION
+    assert lines[0] == f"# Exported by FusionExtractor V{_VERSION} in Fusion Electronics / EAGLE mount.ulp format"
+    assert lines[3].split() == ["#", "Part", "X", "Y", "Rotation", "Value"]
+
+
+def test_extract_placements_eagle_y_not_negated(project, tmp_path):
+    mnt, _ = project.extract_placements_eagle(tmp_path)
+    u1 = next(e for e in project.get_placements() if e.reference == "U1")
+    row = next(line for line in mnt.read_text().splitlines() if line.startswith("U1 "))
+    y = float(row.split()[2])
+    assert y == u1.y
+
+
+def test_extract_placements_eagle_creates_dest_dir(project, tmp_path):
+    dest = tmp_path / "new_subdir"
+    assert not dest.exists()
+    project.extract_placements_eagle(dest)
+    assert dest.is_dir()
 
 
 # ---------------------------------------------------------------------------

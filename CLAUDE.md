@@ -6,7 +6,7 @@ Python library for extracting resources from Autodesk Fusion Electronics `.f3z` 
 
 ```
 fusionextractor/
-  __init__.py      # exports FusionProject, PreviewImage, BomEntry, FusionExtractorError, FileNotFoundInArchiveError
+  __init__.py      # exports FusionProject, PreviewImage, BomEntry, PlacementEntry, FusionExtractorError, FileNotFoundInArchiveError
   f3z.py           # FusionProject dataclass — all extraction logic lives here
   exceptions.py    # FusionExtractorError, FileNotFoundInArchiveError
 examples/
@@ -53,17 +53,25 @@ with FusionProject("design.f3z") as proj:
     proj.get_previews(include_large_images=True)  # list[PreviewImage]
     proj.get_board_image(view_type) -> bytes      # view_type: "schematic" | "pcb_top" | "pcb_3d_top" | "pcb_3d_bottom"
     proj.get_bom(include_power_symbols=False)     # list[BomEntry]
+    proj.get_placements()                          # list[PlacementEntry]
 
     proj.extract_schematic(dest)   # dest = dir path or file path; returns Path
     proj.extract_board(dest)
     proj.extract_previews(dest, include_large_images=True)  # returns list[Path]
     proj.extract_board_image(view_type, dest)     # writes {design_name}_{view_type}.png; returns Path
     proj.extract_bom(dest)         # writes {design_name}_bom.csv; returns Path
+    proj.extract_placements_kicad(dest)  # writes {design_name}.pos; returns Path
+    proj.extract_placements_eagle(dest)  # dest = dir; writes {design_name}.mnt + .mnb; returns (mnt_path, mnb_path)
 ```
 
 `PreviewImage` fields: `source` (str label), `path` (path inside nested archive), `data` (bytes), `view_type` (`"schematic"` | `"pcb_top"` | `"pcb_3d_top"` | `"pcb_3d_bottom"` | `"thumbnail"` | `None`).
 
 `BomEntry` fields: `reference` (ref des), `device` (Eagle deviceset), `package` (footprint, dash-stripped), `value` (may be empty), `library`.  Supply symbols filtered out by default via library name containing "SupplySymbol".
+
+`PlacementEntry` fields: `reference`, `value`, `package`, `x`/`y` (mm, Eagle's native board coordinates — Y increasing upward), `rotation` (degrees, 0-360), `side` (`"top"` | `"bottom"`, derived from the `M` mirror prefix on the Eagle `rot` attribute). Parsed from the `<element>` tags in the `.brd` file.
+
+- `extract_placements_kicad` writes a single `.pos` file covering both sides (matches real KiCad behaviour). Because KiCad's PCB editor uses a Y-increases-downward axis while Eagle uses Y-increases-upward, `PosY` is the negation of `PlacementEntry.y`.
+- `extract_placements_eagle` mimics Eagle's `mount.ulp` and always writes two files split by `side`; X/Y are written unchanged (no axis flip).
 
 ## Key implementation details
 

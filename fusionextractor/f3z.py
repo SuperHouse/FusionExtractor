@@ -26,6 +26,8 @@ import os
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass, field
+from datetime import datetime
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Iterator
 
@@ -36,6 +38,11 @@ except ImportError:
 
 from .exceptions import FileNotFoundInArchiveError, FusionExtractorError
 
+try:
+    _VERSION = version("fusionextractor")
+except PackageNotFoundError:
+    _VERSION = "0.0.0"
+
 
 @dataclass
 class BomEntry:
@@ -44,6 +51,17 @@ class BomEntry:
     package: str      # footprint (Eagle device variant), e.g. "0603", "TSSOP16"
     value: str        # component value, e.g. "100nF" — empty string when not set
     library: str      # Eagle library name, e.g. "SuperHouse-Capacitors"
+
+
+@dataclass
+class PlacementEntry:
+    reference: str    # reference designator, e.g. "R1"
+    value: str        # component value, e.g. "10K" — empty string when not set
+    package: str      # footprint, e.g. "C0603", "TSSOP16"
+    x: float          # X position in mm, Eagle board coordinates (Y increasing upward)
+    y: float          # Y position in mm, Eagle board coordinates (Y increasing upward)
+    rotation: float   # rotation in degrees, 0-360
+    side: str         # "top" or "bottom"
 
 
 @dataclass
@@ -173,6 +191,62 @@ class FusionProject:
 
         return result
 
+    @staticmethod
+    def _format_columns(headers: tuple[str, ...], rows: list[tuple[str, ...]]) -> list[str]:
+        """Left-justify *headers* + *rows* into aligned, space-delimited columns."""
+        widths = [
+            max(len(headers[i]), max((len(row[i]) for row in rows), default=0)) + 2
+            for i in range(len(headers))
+        ]
+        lines = ["".join(h.ljust(w) for h, w in zip(headers, widths)).rstrip()]
+        for row in rows:
+            lines.append("".join(c.ljust(w) for c, w in zip(row, widths)).rstrip())
+        return lines
+
+    @classmethod
+    def _format_placements_kicad(cls, entries: list[PlacementEntry]) -> str:
+        """Render placements as a KiCad-format .pos file (all sides, one file)."""
+        timestamp = datetime.now().astimezone().strftime("%a %d %b %Y %H:%M:%S %Z")
+        headers = ("# Ref", "Val", "Package", "PosX", "PosY", "Rot", "Side")
+        rows = [
+            (
+                e.reference,
+                e.value,
+                e.package,
+                f"{e.x:.4f}",
+                # KiCad's PCB editor uses Y-increases-downward; Eagle uses
+                # Y-increases-upward, so the axis is flipped on export.
+                f"{-e.y:.4f}",
+                f"{e.rotation:.1f}",
+                e.side,
+            )
+            for e in entries
+        ]
+        lines = [
+            f"### Module positions - created on {timestamp} ###",
+            f"### Printed by FusionExtractor V{_VERSION} in KiCad V8.0 format",
+            "## Unit = mm, Angle = deg.",
+            "## Side = top/bottom",
+            *cls._format_columns(headers, rows),
+        ]
+        return "\n".join(lines) + "\n"
+
+    @classmethod
+    def _format_placements_eagle(cls, entries: list[PlacementEntry]) -> str:
+        """Render placements as an Eagle mount.ulp-format .mnt/.mnb file."""
+        headers = ("# Part", "X", "Y", "Rotation", "Value")
+        rows = [
+            (e.reference, f"{e.x:.3f}", f"{e.y:.3f}", f"{e.rotation:g}", e.value)
+            for e in entries
+        ]
+        lines = [
+            f"# Exported by FusionExtractor V{_VERSION} in Fusion Electronics / EAGLE mount.ulp format",
+            "# Grid units: mm",
+            "#",
+            *cls._format_columns(headers, rows),
+        ]
+        return "\n".join(lines) + "\n"
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -295,6 +369,36 @@ class FusionProject:
                 package=part.get("device", "").lstrip("-"),
                 value=part.get("value", ""),
                 library=library,
+            ))
+        return results
+
+    def get_placements(self) -> list[PlacementEntry]:
+        """
+        Return component placement data parsed from the board.
+
+        ``x``/``y`` are in mm using Eagle's native board coordinate system
+        (Y increasing upward). Mirrored (bottom-side) elements are reported
+        via ``side="bottom"`` rather than as a negative or offset angle —
+        ``rotation`` is always the plain 0-360 degree value.
+        """
+        tree = ET.fromstring(self.get_board())
+        elements_elem = tree.find(".//elements")
+        if elements_elem is None:
+            return []
+        results: list[PlacementEntry] = []
+        for el in elements_elem:
+            if el.tag != "element":
+                continue
+            rot = el.get("rot", "")
+            angle_str = rot.lstrip("SMR")
+            results.append(PlacementEntry(
+                reference=el.get("name", ""),
+                value=el.get("value", ""),
+                package=el.get("package", ""),
+                x=float(el.get("x", "0")),
+                y=float(el.get("y", "0")),
+                rotation=float(angle_str) if angle_str else 0.0,
+                side="bottom" if "M" in rot else "top",
             ))
         return results
 
@@ -423,6 +527,38 @@ class FusionProject:
                 "library": entry.library,
             })
         return self._write(buf.getvalue().encode(), f"{self.design_name}_bom.csv", dest)
+
+    def extract_placements_kicad(self, dest: str | os.PathLike | None = None) -> Path:
+        """
+        Write component placements as a KiCad-format .pos file (single file,
+        both sides).
+
+        If *dest* is a directory the file is named ``{design_name}.pos``.
+        If *dest* is None the file is written to the current directory.
+        Returns the Path of the written file.
+        """
+        data = self._format_placements_kicad(self.get_placements())
+        return self._write(data.encode(), f"{self.design_name}.pos", dest)
+
+    def extract_placements_eagle(self, dest: str | os.PathLike | None = None) -> tuple[Path, Path]:
+        """
+        Write component placements as Eagle mount.ulp-format files: a
+        ``.mnt`` for top-side components and a ``.mnb`` for bottom-side
+        components.
+
+        *dest* is treated as a directory (defaults to the current directory).
+        Returns a ``(mnt_path, mnb_path)`` tuple.
+        """
+        dest_dir = Path(dest) if dest is not None else Path.cwd()
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        entries = self.get_placements()
+        top = [e for e in entries if e.side == "top"]
+        bottom = [e for e in entries if e.side == "bottom"]
+        mnt_path = dest_dir / f"{self.design_name}.mnt"
+        mnt_path.write_text(self._format_placements_eagle(top))
+        mnb_path = dest_dir / f"{self.design_name}.mnb"
+        mnb_path.write_text(self._format_placements_eagle(bottom))
+        return mnt_path, mnb_path
 
     @staticmethod
     def _write(data: bytes, filename: str, dest: str | os.PathLike | None) -> Path:
